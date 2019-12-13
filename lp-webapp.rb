@@ -1,7 +1,7 @@
 class LpWebapp < Formula
   desc "Connect to lp-webapp EC2 instances"
-  homepage ""
-  url "https://raw.githubusercontent.com/alex-kononovich/dotfiles/master/local/bin/lp-webapp"
+  homepage "https://github.com/alex-kononovich/brew"
+  head "https://raw.githubusercontent.com/alex-kononovich/brew/master/lp-webapp"
 
   depends_on "awscli"
   depends_on "fzf"
