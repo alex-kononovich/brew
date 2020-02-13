@@ -8,18 +8,33 @@
 #   production - connect to production instance instead of integration
 #   console - open Rails console upon connecting
 #   copy - instead of connecting just put host into a clipboard
+#   scp from to - use scp to upload/download files to remote host. Remote path should start from `:` (for ex. :/opt/lp-webapp/current/tmp)
 #
 # Usage examples:
 # - connect to integration: lp-webapp
 # - open Rails console on integration: lp-webapp console
 # - connect to production: lp-webapp production
 # - open Rails console on production: lp-webapp console production
+# - Upload file to a webapp tmp folder: lp-webapp scp test.txt :/opt/lp-webapp/current/tmp
+# - Download file from production webapp: lp-webapp production scp :/opt/lp-webapp/current/tmp/results.csv ./
+
+# TODO New Design
+#
+# Introduce concept of "commands" which would be:
+# - `ssh` to connect to the shell
+# - `console` to connect to Rails console
+# - `scp` to copy files from/to target host.
+# - `copy` to copy instance id??
+#
+# Introduce new switches:
+# - `--production, -p` to run against production
 
 set -e
 
 # defaults
 env='integration'
 console=false
+scp=false
 copy_host=false
 project="lp-webapp,lp-worker"
 tmux_session_name=$(id -F)
@@ -36,6 +51,26 @@ if [[ $* =~ 'copy' ]]; then
   copy_host=true
 fi
 
+if [[ $* =~ 'scp' ]]; then
+  scp=true
+  scp_args=$*
+  scp_args="${scp_args/scp/}"
+  scp_args="${scp_args/production/}"
+  scp_args="${scp_args/console/}"
+  scp_args="${scp_args/copy/}"
+  first_scp_arg=$(echo $scp_args | cut -d' ' -f1)
+  second_scp_arg=$(echo $scp_args | cut -d' ' -f2)
+  if [[ $first_scp_arg =~ ':' ]];then
+    scp_upload=false
+    scp_local_path=$second_scp_arg
+    scp_remote_path=${first_scp_arg/:/}
+  else
+    scp_upload=true
+    scp_local_path=$first_scp_arg
+    scp_remote_path=${second_scp_arg/:/}
+  fi
+fi
+
 if [[ $env == 'production' ]]; then
   region='us-east-1'
 else
@@ -49,23 +84,35 @@ host=$(
     --query 'Reservations[*].Instances[*].[InstanceId,Tags[?Key==`project`]|[0].Value,Tags[?Key==`aws:cloudformation:stack-name`]|[0].Value]' \
     --output text |\
   sort --key 2 --reverse |\
+  # TODO show environment in the header
   fzf --header='Select EC2 instance' --no-sort |\
   awk '{print $1}'
 )
 
 if [[ $host != '' ]]; then
-  if $console; then
-    tmux_command=" \"bundle exec rails console\""
-  else
-    tmux_command=""
-  fi
-
+  proxy_command="sh -c 'aws ssm start-session --target %h --region $region --document-name AWS-StartSSHSession --parameters 'portNumber=%p''"
   if $copy_host; then
     echo "${host}" | pbcopy
+  elif $scp; then
+    if $scp_upload; then
+      echo "Uploading $scp_local_path to $host:$scp_remote_path"
+      # because of permissions we have to copy file to temporary folder first and then move
+      scp -o "ProxyCommand $proxy_command" $scp_local_path "ubadmin@$host:/tmp"
+      ssh -oProxyCommand="$proxy_command" "ubadmin@$host" "sudo mv /tmp/$(basename $scp_local_path) $scp_remote_path"
+    else
+      echo "Downloading $host:$scp_remote_path to $scp_local_path"
+      scp -o "ProxyCommand $proxy_command" "ubadmin@$host:$scp_remote_path" $scp_local_path
+    fi
   else
+    if $console; then
+      tmux_command=" \"bundle exec rails console\""
+    else
+      tmux_command=""
+    fi
+
     ssh \
       -oStrictHostKeyChecking=accept-new \
-      -oProxyCommand="sh -c 'aws ssm start-session --target %h --region $region --document-name AWS-StartSSHSession --parameters 'portNumber=%p''" \
+      -oProxyCommand="$proxy_command" \
       ubadmin@"$host" \
       -t "cd /opt/lp-webapp/current && export RAILS_ENV=${env} && sudo -E -u unbounce tmux new-session -A -s \"$tmux_session_name\"$tmux_command"
   fi
