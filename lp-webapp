@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 
-# Usage: lp-webapp [production] [console] [copy]
+# Usage: lp-webapp [production] [console]
 # 
 # Order of arguments doesn't matter
 # 
 # Arguments:
 #   production - connect to production instance instead of integration
 #   console - open Rails console upon connecting
-#   copy - instead of connecting just put host into a clipboard
 #   scp from to - use scp to upload/download files to remote host. Remote path should start from `:` (for ex. :/opt/lp-webapp/current/tmp)
 #
 # Usage examples:
@@ -24,7 +23,6 @@
 # - `ssh` to connect to the shell
 # - `console` to connect to Rails console
 # - `scp` to copy files from/to target host.
-# - `copy` to copy instance id??
 #
 # Introduce new switches:
 # - `--production, -p` to run against production
@@ -35,7 +33,6 @@ set -e
 env='integration'
 console=false
 scp=false
-copy_host=false
 project="lp-webapp,lp-worker"
 tmux_session_name=$(id -F)
 
@@ -47,17 +44,12 @@ if [[ $* =~ 'console' ]]; then
   console=true
 fi
 
-if [[ $* =~ 'copy' ]]; then
-  copy_host=true
-fi
-
 if [[ $* =~ 'scp' ]]; then
   scp=true
   scp_args=$*
   scp_args="${scp_args/scp/}"
   scp_args="${scp_args/production/}"
   scp_args="${scp_args/console/}"
-  scp_args="${scp_args/copy/}"
   first_scp_arg=$(echo $scp_args | cut -d' ' -f1)
   second_scp_arg=$(echo $scp_args | cut -d' ' -f2)
   if [[ $first_scp_arg =~ ':' ]];then
@@ -91,9 +83,7 @@ host=$(
 
 if [[ $host != '' ]]; then
   proxy_command="sh -c 'aws ssm start-session --target %h --region $region --document-name AWS-StartSSHSession --parameters 'portNumber=%p''"
-  if $copy_host; then
-    echo "${host}" | pbcopy
-  elif $scp; then
+  if $scp; then
     if $scp_upload; then
       echo "Uploading $scp_local_path to $host:$scp_remote_path"
       # because of permissions we have to copy file to temporary folder first and then move
