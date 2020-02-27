@@ -95,9 +95,9 @@ if [[ $host != '' ]]; then
     fi
   else
     if $console; then
-      tmux_command=" \"bundle exec rails console\""
+      tmux_command="\" tmux set-option -g mouse on && bundle exec rails console\""
     else
-      tmux_command=""
+      tmux_command="\" tmux set-option -g mouse on\""
     fi
 
     ssh \
